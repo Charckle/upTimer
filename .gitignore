@@ -1,0 +1,4 @@
+.upTimer.py.swp
+*.log
+__pycache__/*
+__pycache__
