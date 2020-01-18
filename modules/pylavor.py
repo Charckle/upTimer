@@ -51,6 +51,13 @@ def isAdmin():
         is_admin = ctypes.windll.shell32.IsUserAnAdmin() != 0
     return is_admin
 
+def check_file_exists(filenameLocation):
+    try:
+        with open(filenameLocation) as f:
+            return True
+    except IOError:
+        return False
+
 if __name__ == "__main__":
     pass
     #print(isAdmin())

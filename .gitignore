@@ -1,4 +1,7 @@
-.upTimer.py.swp
+*.swp
 *.log
 __pycache__/*
 __pycache__
+data/*
+data/databases
+data/databases/*

@@ -1,12 +1,19 @@
 import smtplib
 from email.message import EmailMessage
 
+#{"smtp_server": "ns1.strojnica.com", "smtp_port": "465", "from_address": "email", "pass": "password123", "to_address": "to_email", "subject": "stuff", "body": "write something"}
 
-def sendEmail(subj,bod):
-    from_addr = "server@razor.si"
-    to_addr = "andrej.zubin@email.com"
-    subject = subj
-    body = bod
+def sendEmail(data):
+
+    smtp_server = data["smtp_server"]
+    smtp_port = data["smtp_port"]
+
+    from_addr = data["from_address"]
+    password = data["pass"]
+    to_addr = data["to_address"]
+    subject = data["subject"]
+    body = data["body"]
+
     
     msg = EmailMessage()
     msg.add_header('from', from_addr)
@@ -14,7 +21,7 @@ def sendEmail(subj,bod):
     msg.add_header('subject', subject)
     msg.set_content(body)
     
-    server = smtplib.SMTP_SSL('ns1.strojnica.com', 465)
-    server.login(from_addr, '9D&nEWn*O^@S')
-    server.send_message(msg, from_addr=from_addr, to_addrs=[to_addr])
+    server = smtplib.SMTP_SSL(smtp_server, smtp_port)
+    server.login(from_addr, password)
+    server.send_message(msg, from_addr=from_addr, to_addrs=to_addr)
 

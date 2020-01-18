@@ -1,9 +1,10 @@
 import urllib.request as wb
 from modules import pylavor
+from modules import email_sender
 import logging
 import datetime
 
-logging.basicConfig(level=logging.DEBUG) #filename='upTimer.log',level=logging.DEBUG, filemode='w')
+logging.basicConfig(level=logging.INFO) #filename='upTimer.log',level=logging.DEBUG, filemode='w')
 
 class WebPage():
     def __init__(self, webpageName, single_page_data):
@@ -11,6 +12,7 @@ class WebPage():
         self.webAddress = single_page_data["webAddress"]
         self.contactEmail = single_page_data["contactEmail"]
         self.contactNumber = single_page_data["contactNumber"]
+        self.last_contact_time = ""
     
     def __str__(self):
         print(f"Website {self.name}, address: {self.webAddress}, started monitoring: {self.startMonitoringDate}")
@@ -41,13 +43,13 @@ class WebPage():
         all_insertions = pylavor.json_read(location, filename)
         
         now = datetime.datetime.now()
-        
+        self.last_contact_time = now.__str__()
+
         new_insertion = {}
 
         if all_insertions[list(all_insertions.keys())[-1]]["status"] == True:
             new_insertion["status"] = False
             new_insertion["date"] = now.__str__()
-            
 
         else:
             new_insertion["status"] = True
@@ -57,6 +59,34 @@ class WebPage():
         pylavor.json_write(location, filename, all_insertions)
 
         logging.info("Event inserted correctly.")
+
+    def send_alert_email(self, status, timedate):
+
+        logging.info(f"Starting the process of sending an email alert for {self.name}.")
+
+        if status == True:
+            status = "ONLINE"
+        else:
+            status = "OFFLINE"
+        
+        location = "data"
+        filename = "email_data.json"
+
+        logging.info("Loading email credentials.")
+        try:
+            email_credentials = pylavor.json_read(location, filename)
+
+        except:
+            logging.debug("Could not locate the .json file with the email credentials, creating one.")
+            email_credentials = {"smtp_server": "smtp.emailserver.com", "smtp_port": "465", "from_address": "email@sender.com", "pass": "Password123"}
+            pylavor.json_write(location, filename, email_credentials)
+            
+        
+        email_data = {"smtp_server": email_credentials["smtp_server"], "smtp_port": email_credentials["smtp_port"], "from_address": email_credentials["from_address"], "pass": email_credentials["pass"], "to_address": self.contactEmail, "subject": f"Webpage {self.name} is {status}", "body": f"The webpage {self.name}, on the URL {self.webAddress}, went {status} at {timedate}."}
+        
+        logging.info("Sending alert email.")
+        email_sender.sendEmail(email_data)
+
 
 def newWebpage(webpageName, webAddress, contactEmail, contactNumber):
     logging.info("Adding a new webpage to the program.")
@@ -89,8 +119,9 @@ def newWebpage(webpageName, webAddress, contactEmail, contactNumber):
     logging.debug(f"Successfully added the webpage: {webpageName}")
 
 class WebDictionary():
-    def __init__(self):
+    def __init__(self, status):
         self.webPages = []
+        self.status = status
 
     def __str__(self):
         print(f"This WebDictionary holds {len(self.webPages)} webpages.")
@@ -99,13 +130,31 @@ class WebDictionary():
         logging.debug("Adding the webpage to the WebDictionary.")
         self.webPages.append(webpage)
 
+    def send_emails(self):
+        #check if emails were already sent today
+        location = "data"
+        if self.status == True:
+            filename = "sent_email_online.json"
+        else:
+            filename = "offline_email_online.json"
+
+        logging.debug("Loading the .json of sent emails.")
+        list_of_sent_email = pylavor.json_read(location, filename)
+        
+        nth_day_year = datetime.now().timetuple().tm_yday
+
+        if list_of_sent_email["day"] == nth_day_year:
+            for page in self.webPages:
+                if page.name not in list_of_sent_email["pages_sent"].values():
+                    page.send_alert_email(self.status, page.last_contact_time)
+                    list_of_sent_email["pages_sent"][len(list_of_sent_email["pages_sent"])] = page.name
 
 def powerUp():
     logging.info("Starting Up")
     webpages_to_check = get_webpage_database()
 
-    online_to_send = WebDictionary()
-    offline_to_send = WebDictionary()
+    online_to_send = WebDictionary(True)
+    offline_to_send = WebDictionary(False)
 
     for page in webpages_to_check:
         webPage = WebPage(page, webpages_to_check[page])
@@ -135,11 +184,22 @@ def powerUp():
 
             else:
                 logging.debug("The webpage was previously OFFLINE.")
-
+    
+    logging.info("Starting to send emails of ONLINE pages.")
+    online_to_send.send_emails()
+    logging.info("Starting to send emails of OFFLINE pages.")
+    offline_to_send.send_emails()
+    
 
 def get_webpage_database():
-    webpages_to_check = pylavor.json_read("data", "webpages_to_check.json")
-    logging.debug("Webpages loaded from json correctly.")
+    try:
+        webpages_to_check = pylavor.json_read("data", "webpages_to_check.json")
+        logging.debug("Webpages loaded from json correctly.")
+
+    except:
+       webpages_to_check = pylavor.json_read("data", "webpages_to_check.json")
+       logging.debug("Webpages loaded from json correctly.")
+
     return webpages_to_check
 
 def save_webpage_database(webpages_to_save):
@@ -147,5 +207,19 @@ def save_webpage_database(webpages_to_save):
     logging.debug("Webpages saved to json correctly.")
 
 if __name__ == "__main__":
-    powerUp()
-    #newWebpage("Motion Olmo", "https://motion.razor.si", "andrej.zubin@razor.si", "031310333")
+    if not pylavor.check_file_exists("data/webpages_to_check.json") or pylavor.check_file_exists("data/email_data.json"):
+        logging.debug("All needed files were found to exists, the program can run as expected.")
+        powerUp()
+        #newWebpage("Motion Olmo", "https://motion.razor.si", "andrej.zubin@razor.si", "031310333")
+    else:
+        logging.info("The main webpages db or the db with the email credentials were not found. Will go trough and create the ones that are not found.")
+        if  not pylavor.check_file_exists("data/webpages_to_check.json"):
+            logging.info("The webpages DB file was not found. Creating one.")
+            
+            newWebpage("Internet Holidays", "http://ih.razor.si", "info@ksok.si", "031301330")
+            
+        if not pylavor.check_file_exists("data/email_data.json"):
+            logging.info("The email credentials file was not found. Creating one.")
+            email_credentials = "smtp_server": "smtp.emailserver.com", "smtp_port": "465", "from_address": "email@sender.com", "pass": "Password123"}
+            pylavor.json_write("data", "email_data.json", email_credentials)
+
