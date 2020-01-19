@@ -4,7 +4,7 @@ from modules import email_sender
 import logging
 import datetime
 
-logging.basicConfig(level=logging.INFO) #filename='upTimer.log',level=logging.DEBUG, filemode='w')
+logging.basicConfig(filename='upTimer.log',level=logging.INFO, filemode='w')
 
 class WebPage():
     def __init__(self, webpageName, single_page_data):
@@ -12,6 +12,7 @@ class WebPage():
         self.webAddress = single_page_data["webAddress"]
         self.contactEmail = single_page_data["contactEmail"]
         self.contactNumber = single_page_data["contactNumber"]
+        self.sent_notif_on_day = single_page_data["notification_day"]
         self.last_contact_time = ""
     
     def __str__(self):
@@ -60,6 +61,10 @@ class WebPage():
 
         logging.info("Event inserted correctly.")
 
+    def send_alert_sms(self, status, timedate):
+        #not yet implemented. the problem is, that the day it checks for if the sms was already sent, is the same as the emails. Have to change that before writing the code onwards.
+        pass
+    
     def send_alert_email(self, status, timedate):
 
         logging.info(f"Starting the process of sending an email alert for {self.name}.")
@@ -87,15 +92,44 @@ class WebPage():
         logging.info("Sending alert email.")
         email_sender.sendEmail(email_data)
 
+    def set_notif_day(self, nth_day_year):
+        logging.debug("Setting the day the notification was sent.")
+        self.sent_notif_on_day = nth_day_year
 
-def newWebpage(webpageName, webAddress, contactEmail, contactNumber):
+        logging.debug("Writing the changes of the webpage to the main db.")
+        self.write_webpage_to_main_db()
+    
+    def reset_notif_day(self):
+        logging.debug("Resetting/deleting the day the notification was sent.")
+        self.sent_notif_on_day = ""
+
+        logging.debug("Writing the changes of the webpage to the main db.")
+        self.write_webpage_to_main_db()
+
+
+    def write_webpage_to_main_db(self):
+        logging.debug("Starting to save the webpage data to the DB.")
+        webPage = {
+            "webAddress": self.webAddress,
+            "contactEmail": self.contactEmail,
+            "contactNumber": self.contactNumber,
+            "notification_day": self.sent_notif_on_day
+                 }
+
+        webpages_to_check = get_webpage_database()
+        webpages_to_check[self.name] = webPage
+        save_webpage_database(webpages_to_check)
+        logging.debug("Saved.")
+
+def newWebpage(webpageName, webAddress, contactEmail, contactNumber, sent_notif_on_day):
     logging.info("Adding a new webpage to the program.")
     webPages = get_webpage_database()
 
     webPage = {webpageName: {
         "webAddress": webAddress,
         "contactEmail": contactEmail,
-        "contactNumber": contactNumber
+        "contactNumber": contactNumber,
+        "notification_day": sent_notif_on_day
             }
         }
 
@@ -130,24 +164,26 @@ class WebDictionary():
         logging.debug("Adding the webpage to the WebDictionary.")
         self.webPages.append(webpage)
 
+    def send_sms(self):
+        #not yet implemented. For more info check the function log
+        send_alert_sms(self, status, timedate)
+
     def send_emails(self):
         #check if emails were already sent today
-        location = "data"
-        if self.status == True:
-            filename = "sent_email_online.json"
-        else:
-            filename = "offline_email_online.json"
 
-        logging.debug("Loading the .json of sent emails.")
-        list_of_sent_email = pylavor.json_read(location, filename)
-        
-        nth_day_year = datetime.now().timetuple().tm_yday
+        nth_day_year = datetime.datetime.now().timetuple().tm_yday
 
-        if list_of_sent_email["day"] == nth_day_year:
-            for page in self.webPages:
-                if page.name not in list_of_sent_email["pages_sent"].values():
-                    page.send_alert_email(self.status, page.last_contact_time)
-                    list_of_sent_email["pages_sent"][len(list_of_sent_email["pages_sent"])] = page.name
+        for page in self.webPages:
+            
+            logging.info(f"Sending emails for {page.name}.")
+            if not page.sent_notif_on_day == nth_day_year:
+                logging.debug("The email alert was NOT sent today. Sending.")
+                page.send_alert_email(self.status, page.last_contact_time)
+                logging.debug("Inserting date of alert sending to the page info.")
+                page.set_notif_day(nth_day_year) 
+
+            else:
+                logging.debug("The email alert was already sent today.")
 
 def powerUp():
     logging.info("Starting Up")
@@ -172,6 +208,8 @@ def powerUp():
                 webPage.add_insertion()
                 logging.debug("Adding the webpage to the list to send an warning.")
                 online_to_send.addWebpage(webPage)
+                logging.debug("Reseting that an alert was sent today.")
+                webPage.reset_notif_day()
 
         else:
             logging.info("The webpage is OFFLINE.")
@@ -184,6 +222,8 @@ def powerUp():
 
             else:
                 logging.debug("The webpage was previously OFFLINE.")
+        
+        logging.info("-----------------------------------")
     
     logging.info("Starting to send emails of ONLINE pages.")
     online_to_send.send_emails()
@@ -197,9 +237,9 @@ def get_webpage_database():
         logging.debug("Webpages loaded from json correctly.")
 
     except:
-       webpages_to_check = pylavor.json_read("data", "webpages_to_check.json")
-       logging.debug("Webpages loaded from json correctly.")
-
+        webpages_to_check = {}
+        pylavor.json_write("data", "webpages_to_check.json", webpages_to_check)
+    
     return webpages_to_check
 
 def save_webpage_database(webpages_to_save):
@@ -207,19 +247,21 @@ def save_webpage_database(webpages_to_save):
     logging.debug("Webpages saved to json correctly.")
 
 if __name__ == "__main__":
-    if not pylavor.check_file_exists("data/webpages_to_check.json") or pylavor.check_file_exists("data/email_data.json"):
+    if pylavor.check_file_exists("data/webpages_to_check.json") and pylavor.check_file_exists("data/email_data.json"):
         logging.debug("All needed files were found to exists, the program can run as expected.")
         powerUp()
         #newWebpage("Motion Olmo", "https://motion.razor.si", "andrej.zubin@razor.si", "031310333")
     else:
         logging.info("The main webpages db or the db with the email credentials were not found. Will go trough and create the ones that are not found.")
-        if  not pylavor.check_file_exists("data/webpages_to_check.json"):
+        if not pylavor.check_file_exists("data/webpages_to_check.json"):
             logging.info("The webpages DB file was not found. Creating one.")
             
-            newWebpage("Internet Holidays", "http://ih.razor.si", "info@ksok.si", "031301330")
+            newWebpage("Internet Holidays", "http://ih.razor.si", "info@ksok.si", "031301330", "")
             
         if not pylavor.check_file_exists("data/email_data.json"):
             logging.info("The email credentials file was not found. Creating one.")
-            email_credentials = "smtp_server": "smtp.emailserver.com", "smtp_port": "465", "from_address": "email@sender.com", "pass": "Password123"}
+            email_credentials = {"smtp_server": "smtp.emailserver.com", "smtp_port": "465", "from_address": "email@sender.com", "pass": "Password123"}
             pylavor.json_write("data", "email_data.json", email_credentials)
+
+    logging.info("---------------------------------------------------------------------------------------------")
 
